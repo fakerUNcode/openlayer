@@ -1,38 +1,46 @@
 <template>
   <div class="distance-measure-container">
-    <!-- 测量控制区域 -->
     <div class="measure-controls">
       <div class="control-title">距离测量</div>
       <div class="control-buttons">
-        <button 
-          @click="toggleMeasure" 
-          :class="{'active': isMeasuring}"
-        >
+        <button @click="toggleMeasure" :class="{ 'active': isMeasuring }">
           {{ isMeasuring ? '结束测量' : '开始测量' }}
         </button>
         <button @click="clearMeasure">清除测量</button>
       </div>
-      <div class="measure-result" v-if="isMeasuring && measurePoints.length > 1">
-        当前测量距离：{{ distance.toFixed(2) }} 米
+      
+      <!-- 测量结果显示区域 -->
+      <div class="measure-results">
+        <div v-if="currentDistance > 0" class="result-item">
+          <span class="result-label">当前段:</span>
+          <span class="result-value">{{ currentDistance.toFixed(2) }} 米</span>
+        </div>
+        <div v-if="totalDistance > 0" class="result-item">
+          <span class="result-label">总距离:</span>
+          <span class="result-value">{{ totalDistance.toFixed(2) }} 米</span>
+        </div>
+        <div v-if="segmentCount > 0" class="result-item">
+          <span class="result-label">线段数:</span>
+          <span class="result-value">{{ segmentCount }}</span>
+        </div>
       </div>
+      
       <div class="error-tip" v-if="errorMessage">{{ errorMessage }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
-import { defineProps, defineEmits } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { defineProps } from 'vue'
 import { LineString, Point } from 'ol/geom'
 import { Style, Stroke, Circle, Fill } from 'ol/style'
 import { Vector as VectorLayer } from 'ol/layer'
 import VectorSource from 'ol/source/Vector'
 import { Feature } from 'ol'
 import { getDistance } from 'ol/sphere'
-import { toLonLat } from 'ol/proj' // 修改导入路径
-import { get } from 'ol/proj' // 新增导入
+import { toLonLat } from 'ol/proj'
 
-// 接收父组件传递的地图实例
 const props = defineProps({
   map: {
     type: Object,
@@ -40,18 +48,17 @@ const props = defineProps({
   }
 })
 
-// 向父组件发送测量结果
-const emits = defineEmits(['distanceMeasured'])
-
 // 组件状态
 const isMeasuring = ref(false)
 const measurePoints = ref([])
-const distance = ref(0)
+const currentDistance = ref(0)
+const totalDistance = ref(0)
+const segmentCount = ref(0)
 const errorMessage = ref('')
 const vectorSource = ref(new VectorSource())
 const vectorLayer = ref(null)
 
-// 测量样式配置
+// 测量样式
 const measureStyle = new Style({
   stroke: new Stroke({
     color: 'rgba(0, 0, 139, 0.8)',
@@ -81,20 +88,35 @@ const initMeasureLayer = () => {
   props.map.addLayer(vectorLayer.value)
 }
 
+// 处理键盘事件
+const handleKeyDown = (e) => {
+  if (e.key === 'Escape' && isMeasuring.value) {
+    endMeasuring()
+  }
+}
+
+// 结束测量
+const endMeasuring = () => {
+  props.map.un('click', handleMapClick)
+  props.map.getViewport().style.cursor = ''
+  isMeasuring.value = false
+}
+
 // 切换测量状态
 const toggleMeasure = () => {
   isMeasuring.value = !isMeasuring.value
   if (isMeasuring.value) {
+    // 开始测量
     measurePoints.value = []
-    distance.value = 0
+    currentDistance.value = 0
     errorMessage.value = ''
     initMeasureLayer()
+    props.map.un('click', handleMapClick)
     props.map.on('click', handleMapClick)
     props.map.getViewport().style.cursor = 'crosshair'
   } else {
-    props.map.un('click', handleMapClick)
-    clearMeasure()
-    props.map.getViewport().style.cursor = ''
+    // 结束测量
+    endMeasuring()
   }
 }
 
@@ -102,15 +124,9 @@ const toggleMeasure = () => {
 const handleMapClick = (event) => {
   const coordinate = event.coordinate
   measurePoints.value.push(coordinate)
-  updateMeasureLine()
-  calculateDistance()
-}
-
-// 更新测量线显示
-const updateMeasureLine = () => {
-  vectorSource.value.clear()
   
-  // 添加测量点
+  // 更新测量线显示
+  vectorSource.value.clear()
   measurePoints.value.forEach(point => {
     const pointFeature = new Feature({
       geometry: new Point(point)
@@ -118,45 +134,40 @@ const updateMeasureLine = () => {
     vectorSource.value.addFeature(pointFeature)
   })
   
-  // 添加测量线
   if (measurePoints.value.length > 1) {
     const lineFeature = new Feature({
       geometry: new LineString(measurePoints.value)
     })
     vectorSource.value.addFeature(lineFeature)
+    calculateDistance()
   }
 }
 
-// 计算距离（关键修改点）
+// 计算距离
 const calculateDistance = () => {
-  if (measurePoints.value.length < 2) {
-    distance.value = 0
-    return
-  }
-  
-  distance.value = 0
   try {
     const mapProjection = props.map.getView().getProjection()
+    const pointsCount = measurePoints.value.length
     
-    for (let i = 0; i < measurePoints.value.length - 1; i++) {
-      // 使用 toLonLat 转换坐标（自动处理为 EPSG:4326）
+    // 计算最后一段距离
+    const lastSegmentStart = toLonLat(measurePoints.value[pointsCount-2], mapProjection)
+    const lastSegmentEnd = toLonLat(measurePoints.value[pointsCount-1], mapProjection)
+    currentDistance.value = getDistance(lastSegmentStart, lastSegmentEnd)
+    
+    // 计算总距离
+    totalDistance.value = 0
+    for (let i = 0; i < pointsCount - 1; i++) {
       const start = toLonLat(measurePoints.value[i], mapProjection)
-      const end = toLonLat(measurePoints.value[i + 1], mapProjection)
-      
-      // 计算球面距离（单位：米）
-      const dist = getDistance(start, end)
-      distance.value += dist
+      const end = toLonLat(measurePoints.value[i+1], mapProjection)
+      totalDistance.value += getDistance(start, end)
     }
     
-    emits('distanceMeasured', {
-      points: measurePoints.value,
-      distance: distance.value
-    })
+    segmentCount.value = pointsCount - 1
     errorMessage.value = ''
   } catch (error) {
     console.error('距离计算失败:', error)
     errorMessage.value = '距离计算出错，请重试'
-    distance.value = 0
+    currentDistance.value = 0
   }
 }
 
@@ -164,46 +175,54 @@ const calculateDistance = () => {
 const clearMeasure = () => {
   isMeasuring.value = false
   measurePoints.value = []
-  distance.value = 0
+  currentDistance.value = 0
+  totalDistance.value = 0
+  segmentCount.value = 0
   errorMessage.value = ''
-  vectorSource.value.clear()
+  
+  if (vectorSource.value) {
+    vectorSource.value.clear()
+  }
   if (vectorLayer.value && props.map) {
     props.map.removeLayer(vectorLayer.value)
     vectorLayer.value = null
   }
-}
-
-// 组件卸载时清理资源
-onUnmounted(() => {
-  clearMeasure()
+  
   if (props.map) {
     props.map.un('click', handleMapClick)
     props.map.getViewport().style.cursor = ''
   }
+}
+
+// 组件生命周期
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown)
+  clearMeasure()
 })
 
 // 监听地图变化
 watch(() => props.map, (newMap) => {
   if (newMap && isMeasuring.value) {
     initMeasureLayer()
-    updateMeasureLine()
   }
 }, { immediate: true })
 </script>
 
 <style scoped>
-
 .distance-measure-container {
   position: relative;
-  width: 100%;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
 }
 
 .measure-controls {
-  background-color: 30, 144, 255, 0.7;
-  border: 1px solid #ccc;
-  border-radius: 4px;
   padding: 15px;
-  margin-bottom: 10px;
 }
 
 .control-title {
@@ -211,43 +230,60 @@ watch(() => props.map, (newMap) => {
   font-weight: bold;
   margin-bottom: 12px;
   color: #2c3e50;
-  border-bottom: 1px solid #2c3e50;
+  border-bottom: 1px solid #eee;
   padding-bottom: 8px;
 }
 
 .control-buttons {
   display: flex;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 15px;
 }
 
 .measure-controls button {
-  padding: 6px 12px;
-  background-color: 30, 144, 255, 0.7;
+  padding: 8px 12px;
+  background-color: #1e90ff;
   color: white;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  flex: 1;
 }
 
 .measure-controls button.active {
-  background-color: #ff7e5f;
+  background-color: #ff4757;
 }
 
 .measure-controls button:hover {
-  background-color: 30, 144, 255, 0.7;
+  opacity: 0.9;
 }
 
-.measure-result {
-  color: #fff;
+.measure-results {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+.result-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
   font-size: 14px;
-  margin-top: 8px;
+}
+
+.result-label {
+  color: #666;
+}
+
+.result-value {
+  font-weight: bold;
+  color: #333;
 }
 
 .error-tip {
-  color: #e53e3e;
+  color: #ff4757;
   font-size: 12px;
-  margin-top: 4px;
+  margin-top: 10px;
 }
 </style>

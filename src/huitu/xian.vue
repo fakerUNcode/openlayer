@@ -1,5 +1,14 @@
 <template>
   <div class="xian-container">
+    <div style="text-align: center; margin-bottom: 20px; padding: 10px 0; border-bottom: 1px solid #e0e0e0;">
+      <h2 style="
+        margin: 0;
+        font-size: 16px;
+        color: #1a2b3c;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+      ">线要素管理</h2>
+    </div>
     <div class="xian-controls">
       <div class="button-group">
         <button @click="startDrawing" :class="{'active': isDrawing}">
@@ -318,58 +327,131 @@ export default {
 </script>
 
 <style scoped>
-/* 适配 chuangjian 区域样式 */
+/* ===== 线要素容器 ===== */
 .xian-container {
   position: relative;
   width: 100%;
+  background: var(--bg-light);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 3px 10px var(--shadow-light);
+  transition: all 0.3s ease;
+  color: var(--text-primary);
 }
 
+.xian-container:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(16, 42, 92, 0.2);
+  border-color: var(--border-dark);
+}
+
+/* ===== 线要素控制区域 ===== */
 .xian-controls {
-  background-color: 30, 144, 255, 0.7;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  padding: 20px;
-  margin-bottom: 0px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.button-group {
+/* ===== 按钮组样式 ===== */
+.xian-controls .button-group {
   display: flex;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 0;
 }
 
+/* ===== 按钮样式 ===== */
 .xian-controls button {
-  padding: 6px 12px;
-  background-color: 30, 144, 255, 0.7;
-  color: white;
+  padding: 10px 18px;
+  background: var(--primary-blue);
+  color: rgb(59, 122, 165);
   border: none;
-  border-radius: 3px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.xian-controls button.active {
-  background-color: #ff7e5f;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 5px rgba(16, 42, 92, 0.2);
+  -webkit-font-smoothing: antialiased;
 }
 
 .xian-controls button:hover:not(:disabled) {
-  background-color: 30, 144, 255, 0.7;
+  background: var(--dark-blue);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(16, 42, 92, 0.25);
+}
+
+.xian-controls button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px rgba(16, 42, 92, 0.3);
+}
+
+.xian-controls button.active {
+  background: var(--primary-blue);
+  color: white;
 }
 
 .xian-controls button:disabled {
-  background-color: #cccccc;
+  background: #cccccc;
   cursor: not-allowed;
+  opacity: 0.7;
 }
 
-.error-message {
-  color: #e53e3e;
+/* ===== 错误信息 ===== */
+.xian-controls .error-message {
+  color: var(--error-red);
+  font-size: 13px;
+  margin-top: -6px;
+  padding: 6px 0;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.xian-controls .error-message::before {
+  content: "!";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: var(--error-red);
+  color: white;
+  border-radius: 50%;
   font-size: 12px;
-  margin-top: 5px;
+  font-weight: bold;
 }
 
-.measure-info {
-  color: #fff;
+/* ===== 测量信息 ===== */
+.xian-controls .measure-info {
+  color: var(--text-secondary);
   font-size: 14px;
   margin-top: 10px;
+}
+
+/* ===== 响应式调整 ===== */
+@media (max-width: 768px) {
+  .xian-container {
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .xian-controls {
+    padding: 14px;
+    gap: 12px;
+  }
+  
+  .xian-controls button {
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+  
+  .xian-controls .button-group {
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 </style>  

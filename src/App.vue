@@ -1,69 +1,70 @@
 <template>
   <div class="app-container">
-    <!-- 顶部区域 -->
+    <!-- 顶部导航栏 -->
     <div class="top-bar">
-      <h1 class="header-title">Openlayers地图管理系统</h1> <!-- 新增标题 -->
+      <h1 class="header-title">Openlayers地图管理与分析系统</h1>
     </div>
-    <!-- 中间内容区域，包含三列 -->
+
+    <!-- 主内容区（三栏布局） -->
     <div class="content-row">
+      <!-- 左侧面板：数据图层控制 -->
       <div class="left-col">
-        <!-- 给 PublicMap 套容器 -->
         <div v-if="mainMap" class="public-map-wrapper">
           <div class="center-text">数据图层选择</div>
           <PublicMap :map="mainMap" />
         </div>
-        <!-- 给 OpenMap 套容器，放在 PublicMap 下方 -->
+        
         <div v-if="mainMap" class="open-map-wrapper">
           <div class="center-text">矢量数据图层选择</div>
           <OpenMap :map="mainMap" />
         </div>
+        
         <div v-if="mainMap" class="ogc-map-wrapper">
           <div class="center-text">其他图层服务</div>
-          <OGCMap 
-            :map="mainMap" 
-            tianKey="01270f58d46fa3e4e48c1a6a5d8625fb" 
+          <OGCMap :map="mainMap" 
+            tianKey="01270f58d46fa3e4e48c1a6a5d8625fb"
             wmsUrl="http://localhost:8080/geoserver/nurc/wms" 
-            wfsUrl="http://localhost:8080/geoserver/sf/ows" 
-          />
+            wfsUrl="http://localhost:8080/geoserver/sf/ows" />
         </div>
       </div>
-      <!-- 引入 Map 组件 -->
+
+      <!-- 中间面板：地图显示 -->
       <div class="middle-col">
-        <Map 
-          :view-conf="{
-            center: [12758612.973162018, 3562849.0216611675],
-            zoom: 17.5
-          }" 
-          :def-lyrs="['vec_c']" 
-          @created="handleMapCreated" 
-        />
+        <Map :view-conf="{
+          center: [12758612.973162018, 3562849.0216611675],
+          zoom: 17.5
+        }" :def-lyrs="['vec_c']" @created="handleMapCreated" />
+        
+        <!-- 地图控制按钮组 -->
+        <div class="map-controls-center">
+          <button @click="showHeatmapWithZoom" class="control-button">
+            {{ showHeatmap ? '隐藏热力图' : '显示热力图' }}
+          </button>
+          <button @click="showClustersWithZoom" class="control-button">
+            {{ showClusters ? '隐藏聚类' : '显示聚类' }}
+          </button>
+        </div>
+        
+        <FloatingFullScreen v-if="mainMap" :map="mainMap" />
       </div>
+
+      <!-- 右侧面板：工具集 -->
       <div class="right-col">
         <div class="center-text">数据管理</div>
+        
+        <!-- 要素创建工具 -->
         <div class="chuangjian-container">
-          <div class="center-text">创建要素</div>
-          <!-- 重构后直接使用Dian组件 -->
-          <Dian 
-            v-if="mainMap" 
-            :map="mainMap" 
-            :customPoints="customPoints" 
-            @pointCreated="handlePointCreated"
-          />
-          <!-- 新增：使用 xian.vue 组件 -->
-          <Xian 
-            v-if="mainMap" 
-            :map="mainMap" 
-            @lineCreated="handleLineCreated"
-          />
+          <div class="center-text">要素创建工具</div>
+          <Dian v-if="mainMap" :map="mainMap" :customPoints="customPoints" @pointCreated="handlePointCreated" />
+          <Xian v-if="mainMap" :map="mainMap" @lineCreated="handleLineCreated" />
+          <Duobianxing v-if="mainMap" :map="mainMap" @polygonCreated="handlePolygonCreated" />
         </div>
+        
+        <!-- 测量工具 -->
         <div class="gongju-container">
-          <div class="center-text">工具</div>
-          <!-- 新增距离测量组件 -->
-          <Juli 
-            v-if="mainMap" 
-            :map="mainMap" 
-            @distanceMeasured="handleDistanceMeasured"
-          />
+          <div class="center-text">路径规划和测量工具</div>
+          <PathPlanning v-if="mainMap" :map="mainMap" />
+          <Juli v-if="mainMap" :map="mainMap" @distanceMeasured="handleDistanceMeasured" />
         </div>
       </div>
     </div>
@@ -71,99 +72,226 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import Map from './views/Map.vue'
-import PublicMap from './views/dataService/PublicMap.vue' 
-import OpenMap from './views/dataService/OpenMap.vue' 
-import OGCMap from './views/dataService/OGCMap.vue' 
+import PublicMap from './views/dataService/PublicMap.vue'
+import OpenMap from './views/dataService/OpenMap.vue'
+import OGCMap from './views/dataService/OGCMap.vue'
 import Dian from './huitu/dian.vue'
-import Xian from './huitu/xian.vue' 
+import Xian from './huitu/xian.vue'
+import Duobianxing from './huitu/duobianxing.vue'
 import Juli from './gongju/juli.vue'
-import { nextTick } from 'vue';
+import FloatingFullScreen from './components/FloatingFullScreen.vue'
+import PathPlanning from './components/PathPlanning.vue'
+
+// OpenLayers核心模块
+import Feature from 'ol/Feature'
+import Point from 'ol/geom/Point'
+import { fromLonLat } from 'ol/proj'
+import VectorSource from 'ol/source/Vector'
+import VectorLayer from 'ol/layer/Vector'
+import ClusterSource from 'ol/source/Cluster'
+import HeatmapLayer from 'ol/layer/Heatmap'
+import Style from 'ol/style/Style'
+import CircleStyle from 'ol/style/Circle'
+import Fill from 'ol/style/Fill'
+import Text from 'ol/style/Text'
+
+// 模拟数据点
+const mockPoints = [
+  { lon: 116.404, lat: 39.915, value: 5 },  // 天安门坐标
+  { lon: 116.408, lat: 39.918, value: 3 },
+  { lon: 116.402, lat: 39.913, value: 7 }
+]
 
 export default {
   name: 'App',
   components: {
-    Map,
-    PublicMap,
-    OpenMap,
-    OGCMap,
-    Dian,
-    Xian,
-    Juli 
+    Map, PublicMap, OpenMap, OGCMap,
+    Dian, Xian, Duobianxing, Juli,
+    FloatingFullScreen,PathPlanning
   },
   setup() {
+    // 地图实例和状态管理
     const mainMap = ref(null)
+    const viewConfig = ref({
+      center: fromLonLat([116.404, 39.915]),
+      zoom: 15
+    })
+
+    // 数据存储
     const customPoints = ref([])
-    const customLines = ref([]) 
-    const measureHistory = ref([]) // 新增：定义 measureHistory
-    const errorMessage = ref('')
-    
+    const customLines = ref([])
+    const customPolygons = ref([])
+    const measureHistory = ref([])
+
+    // 图层控制状态
+    const showHeatmap = ref(false)
+    const showClusters = ref(false)
+    const heatmapLayer = ref(null)
+    const clusterLayer = ref(null)
+
+    // 地图初始化回调
     const handleMapCreated = (map) => {
-      console.log('主地图创建完成', map)
-      mainMap.value = map 
-    }
-    
-    const handlePointCreated = (newPoint) => {
-      customPoints.value.push(newPoint)
-      console.log('创建点成功:', newPoint.coordinates)
-    }
-    
-    const handleLineCreated = (newLine) => {
-      customLines.value.push(newLine)
-      console.log('创建线成功:', newLine.coordinates)
+      mainMap.value = map
+      initHeatmapLayer(map)
+      initClusterLayer(map)
     }
 
+    // 要素创建回调
+    const handlePointCreated = (newPoint) => {
+      customPoints.value.push(newPoint)
+      console.log('点要素创建成功:', newPoint.coordinates)
+    }
+
+    const handleLineCreated = (newLine) => {
+      customLines.value.push(newLine)
+      console.log('线要素创建成功:', newLine.coordinates)
+    }
+
+    const handlePolygonCreated = (newPolygon) => {
+      customPolygons.value.push(newPolygon)
+      console.log('面要素创建成功:', newPolygon.coordinates)
+    }
+
+    // 测量工具回调
     const handleDistanceMeasured = (measureData) => {
-  console.log('测量数据:', measureData);
-  // 验证距离是否为有效数值
-  if (isNaN(measureData.distance)) {
-    console.error('接收到无效距离数据');
-    return;
-  }
-  measureHistory.value.push({
-    id: Date.now(),
-    points: measureData.points,
-    distance: measureData.distance,
-    timestamp: new Date()
-  });
-  console.log('距离测量完成:', measureData.distance, '米');
-  nextTick(() => {
-    window.alert(`距离测量完成：${measureData.distance.toFixed(2)} 米`);
-  });
-}
-    
+      if (isNaN(measureData.distance)) {
+        console.error('无效的测量数据')
+        return
+      }
+      measureHistory.value.push({
+        id: Date.now(),
+        points: measureData.points,
+        distance: measureData.distance,
+        timestamp: new Date()
+      })
+      nextTick(() => {
+        window.alert(`距离测量完成：${measureData.distance.toFixed(2)} 米`)
+      })
+    }
+
+    // 热力图图层初始化
+    const initHeatmapLayer = (map) => {
+      const vectorSource = new VectorSource()
+      mockPoints.forEach(point => {
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([point.lon, point.lat])),
+          weight: point.value
+        })
+        vectorSource.addFeature(feature)
+      })
+
+      heatmapLayer.value = new HeatmapLayer({
+        source: vectorSource,
+        blur: 15,
+        radius: 10,
+        weight: feature => feature.get('weight') || 1
+      })
+      heatmapLayer.value.setVisible(false)
+      map.addLayer(heatmapLayer.value)
+    }
+
+    // 聚类图层初始化
+    const initClusterLayer = (map) => {
+      const vectorSource = new VectorSource()
+      mockPoints.forEach(point => {
+        const feature = new Feature({
+          geometry: new Point(fromLonLat([point.lon, point.lat]))
+        })
+        vectorSource.addFeature(feature)
+      })
+
+      const clusterSource = new ClusterSource({
+        distance: 40,
+        source: vectorSource
+      })
+
+      clusterLayer.value = new VectorLayer({
+        source: clusterSource,
+        style: feature => {
+          const size = feature.get('features').length
+          return new Style({
+            image: new CircleStyle({
+              radius: 10 + Math.min(size, 10) * 2,
+              fill: new Fill({
+                color: `rgba(255, 0, 0, ${0.6 + Math.min(size, 10) * 0.05})`
+              })
+            }),
+            text: new Text({
+              text: size.toString(),
+              fill: new Fill({ color: '#fff' })
+            })
+          })
+        }
+      })
+      clusterLayer.value.setVisible(false)
+      map.addLayer(clusterLayer.value)
+    }
+
+    // 热力图显示控制
+    const showHeatmapWithZoom = () => {
+      showHeatmap.value = !showHeatmap.value
+      heatmapLayer.value.setVisible(showHeatmap.value)
+      if (showHeatmap.value && mainMap.value) {
+        mainMap.value.getView().animate({
+          center: fromLonLat([116.404, 39.915]),
+          zoom: 15,
+          duration: 1000
+        })
+      }
+    }
+
+    // 聚类显示控制
+    const showClustersWithZoom = () => {
+      showClusters.value = !showClusters.value
+      clusterLayer.value.setVisible(showClusters.value)
+      if (showClusters.value && mainMap.value) {
+        mainMap.value.getView().animate({
+          center: fromLonLat([116.41, 39.92]),
+          zoom: 14,
+          duration: 1000
+        })
+      }
+    }
+
     return {
       mainMap,
-      handleMapCreated,
+      viewConfig,
       customPoints,
-      handlePointCreated,
       customLines,
-      handleLineCreated,
+      customPolygons,
       measureHistory,
+      showHeatmap,
+      showClusters,
+      handleMapCreated,
+      handlePointCreated,
+      handleLineCreated,
+      handlePolygonCreated,
       handleDistanceMeasured,
-      errorMessage
+      showHeatmapWithZoom,
+      showClustersWithZoom
     }
   }
 }
 </script>
 
 <style scoped>
-/* ===== 全局变量与基础样式 ===== */
+/* 全局样式变量 */
 :root {
-  --primary-color: rgba(70, 130, 180, 0.8);       /* 主蓝 */
-  --secondary-color: rgba(100, 149, 237, 0.6);    /* 中蓝 */
-  --accent-color: rgba(30, 144, 255, 0.7);       /* 亮蓝 */
-  --bg-light: rgba(255, 255, 255, 0.85);         /* 亮背景 */
-  --bg-lighter: rgba(255, 255, 255, 0.7);        /* 更亮背景 */
-  --text-primary: #2c3e50;                       /* 深灰蓝文字 */
-  --text-secondary: #34495e;                     /* 中灰蓝文字 */
-  --border-light: rgba(255, 255, 255, 0.2);      /* 亮边框 */
-  --border-dark: rgba(70, 130, 180, 0.2);        /* 蓝灰边框 */
-  --shadow-light: rgba(0, 0, 0, 0.1);            /* 柔和阴影 */
+  --primary-color: rgba(70, 130, 180, 0.8);
+  --secondary-color: rgba(100, 149, 237, 0.6);
+  --accent-color: rgba(30, 144, 255, 0.7);
+  --bg-light: rgba(255, 255, 255, 0.85);
+  --bg-lighter: rgba(255, 255, 255, 0.7);
+  --text-primary: #2c3e50;
+  --text-secondary: #34495e;
+  --border-light: rgba(255, 255, 255, 0.2);
+  --border-dark: rgba(70, 130, 180, 0.2);
+  --shadow-light: rgba(0, 0, 0, 0.1);
 }
 
-/* ===== 整体布局 ===== */
+/* 基础布局 */
 .app-container {
   width: 100%;
   height: 100vh;
@@ -173,13 +301,10 @@ export default {
   font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 
-/* ===== 顶部导航栏 ===== */
 .top-bar {
   width: 100%;
   height: 80px;
-  background: linear-gradient(to right, 
-    var(--primary-color), 
-    var(--accent-color));
+  background: linear-gradient(to right, var(--primary-color), var(--accent-color));
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-light);
   display: flex;
@@ -189,16 +314,15 @@ export default {
   z-index: 10;
 }
 
-.top-bar .header-title {
+.header-title {
   margin: 0;
-  color: white;
+  color: var(--primary-color);
   font-size: 24px;
   font-weight: 600;
   letter-spacing: 1px;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-/* ===== 主内容区 ===== */
 .content-row {
   display: flex;
   width: 100%;
@@ -206,7 +330,7 @@ export default {
   overflow: hidden;
 }
 
-/* ===== 左侧面板 ===== */
+/* 左侧面板样式 */
 .left-col {
   width: 280px;
   background: var(--bg-lighter);
@@ -219,7 +343,7 @@ export default {
   box-shadow: 2px 0 5px var(--shadow-light);
 }
 
-/* ===== 中间地图区 ===== */
+/* 中间地图区域 */
 .middle-col {
   flex: 1;
   background: rgba(255, 255, 255, 0.5);
@@ -228,7 +352,7 @@ export default {
   overflow: hidden;
 }
 
-/* ===== 右侧面板 ===== */
+/* 右侧面板样式 */
 .right-col {
   width: 320px;
   background: var(--bg-lighter);
@@ -240,7 +364,7 @@ export default {
   box-shadow: -2px 0 5px var(--shadow-light);
 }
 
-/* ===== 通用卡片样式 ===== */
+/* 通用卡片样式 */
 .public-map-wrapper,
 .open-map-wrapper,
 .ogc-map-wrapper,
@@ -267,24 +391,23 @@ export default {
   border-color: var(--border-dark);
 }
 
-/* ===== 标题样式 ===== */
+/* 标题样式 */
 .center-text {
   text-align: center;
   padding: 12px 0;
   margin: -15px -15px 15px -15px;
   font-weight: 600;
-  color: var(--text-primary);
+  color:var(--primary-color);
   font-size: 16px;
-  background: linear-gradient(to right, 
-    rgba(70, 130, 180, 0.1), 
-    rgba(70, 130, 180, 0.3), 
+  background: linear-gradient(to right,
+    rgba(70, 130, 180, 0.1),
+    rgba(70, 130, 180, 0.3),
     rgba(70, 130, 180, 0.1));
   border-bottom: 1px solid var(--border-dark);
   position: relative;
   border-radius: 8px 8px 0 0;
 }
 
-/* 标题装饰线 */
 .center-text:after {
   content: '';
   position: absolute;
@@ -292,13 +415,56 @@ export default {
   left: 25%;
   width: 50%;
   height: 1px;
-  background: linear-gradient(to right, 
-    transparent, 
-    var(--accent-color), 
-    transparent);
+  background: linear-gradient(to right, transparent, var(--accent-color), transparent);
 }
 
-/* ===== 滚动条美化 ===== */
+/* 控制按钮样式 */
+.map-controls-center {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 8px 16px;
+  border-radius: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.control-button {
+  padding: 8px 16px;
+  background: linear-gradient(to right, var(--primary-color), var(--accent-color));
+  color: var(--primary-color);
+  border: none;
+  border-radius: 15px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s ease;
+  min-width: 100px;
+}
+
+.control-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.control-button:active {
+  transform: translateY(0);
+}
+
+/* 要素创建工具容器 */
+.chuangjian-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 滚动条样式 */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -318,7 +484,7 @@ export default {
   background: rgba(0, 0, 0, 0.25);
 }
 
-/* ===== 响应式设计 ===== */
+/* 响应式设计 */
 @media (max-width: 1200px) {
   .left-col {
     width: 240px;
@@ -328,14 +494,11 @@ export default {
   }
 }
 
-/* ===== 穿透样式 ===== */
-:deep(.open-map-wrapper .control-wrapper) {
-  position: static;
-  margin: 0;
-}
-
-:deep(.open-map-wrapper .control) {
-  position: static;
-  width: 100%;
+@media (max-width: 768px) {
+  .control-button {
+    padding: 6px 12px;
+    font-size: 13px;
+    min-width: 80px;
+  }
 }
 </style>
